@@ -1,43 +1,48 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report
-​
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
 # Read data from the Excel file
-data = pd.read_excel("/kaggle/input/content/all_wind_power_data.xlsx")
-​
-# Drop the datetime column
+data = pd.read_excel("/content/all_wind_power_data.xlsx")
+
+# Drop the DateTime column if not needed
 data = data.drop(columns=['DateTime'])
-​
-# Assume the last column contains the target labels
-X = data.iloc[:, :-1]  # Features
-y = data.iloc[:, -1]   # Target labels
-​
-# Encode categorical labels
-label_encoder = LabelEncoder()
-y = label_encoder.fit_transform(y)
-​
+
+# Define and fit the StandardScaler
+scaler = StandardScaler()
+data_scaled = scaler.fit_transform(data)
+
+
+X = data_scaled[:, :-3]  
+y = data_scaled[:, -3:]  
+
+# Reshape the input data for LSTM
+X = X.reshape(X.shape[0], 1, X.shape[1])
+
 # Split the data into training and testing sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-​
-# Initialize and train the model
-param_grid = {'n_estimators': [100, 200, 300], 'max_depth': [None, 10, 20]}
-rf_classifier = RandomForestClassifier(random_state=42)
-grid_search = GridSearchCV(rf_classifier, param_grid, cv=5, n_jobs=-1)
-grid_search.fit(X_train, y_train)
-​
-# Get the best model
-best_rf_model = grid_search.best_estimator_
-​
+
+# Build the model
+model = tf.keras.Sequential([
+    tf.keras.layers.LSTM(128, input_shape=(X_train.shape[1], X_train.shape[2])),
+    tf.keras.layers.Dense(3)  # Output layer for three targets
+])
+
+# Compile the model
+model.compile(optimizer='adam', loss='mse')
+
+# Train the model
+model.fit(X_train, y_train, epochs=50, batch_size=16, verbose=1)
+
 # Make predictions
-y_pred = best_rf_model.predict(X_test)
-​
-# Evaluate the model
-accuracy = accuracy_score(y_test, y_pred)
-print("Model accuracy:", accuracy)
-​
-# Print classification report for more detailed evaluation
-print(classification_report(y_test, y_pred, target_names=label_encoder.classes_))
-​
+predictions = model.predict(X_test)
+
+# Create a DataFrame with predictions and original features
+predictions_df = pd.DataFrame(np.concatenate([X_test.reshape(X_test.shape[0], X_test.shape[2]), predictions], axis=1),
+                              columns=data.columns[:-3].tolist() + ['predicted_c1', 'predicted_c2', 'predicted_c3'])
+
+# Export the DataFrame to a CSV file
+predictions_df.to_csv("predictions.csv", index=False)
+
